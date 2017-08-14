@@ -1,18 +1,4 @@
-var Wit = require('node-wit').Wit;
-
-// not used at the moment
-var actions = {
-    say: function(sessionId, context, message, cb) {
-        console.log(message);
-        cb();
-    },
-    merge: function(sessionId, context, entities, message, cb) {
-        cb(context);
-    },
-    error: function(sessionId, context, error) {
-        console.log(error.message);
-    }
-};
+var wit = require('node-wit');
 
 module.exports = function(config) {
 
@@ -24,44 +10,54 @@ module.exports = function(config) {
         config.minimum_confidence = 0.5;
     }
 
-    var client = new Wit(config.token, actions);
-
     var middleware = {};
-
+    var intentsArr = [];
     middleware.receive = function(bot, message, next) {
-        // Only parse messages of type text and mention the bot.
-        // Otherwise it would send every single message to wit (probably don't want that).
-        if (message.text && message.text.indexOf(bot.identity.id) > -1) {
-            client.message(message.text, function(error, data) {
-                if (error) {
-                    next(error);
+        if (message.text) {
+            wit.captureTextIntent(config.token, message.text, function(err, res) {
+                if (err) {
+                    next(err);
                 } else {
-                    message.entities = data.entities;
+                    // sort in descending order of confidence so the most likely match is first.
+                    // console.log(JSON.stringify(res));
+                    message.intentsObj = res.outcomes[0].entities;
+                    // console.log(message.intents);
+
+                    for (key in message.intentsObj) {
+                      message.intentsObj[key].map(function (item) {
+                        item.name = key;
+                        intentsArr.push(item);
+                      });
+                    }
+                    message.intents = intentsArr;
                     next();
                 }
             });
-        } else if (message.attachments) {
-            message.intents = [];
-            next();
-        } else {
-            next();
         }
+
     };
 
     middleware.hears = function(tests, message) {
-        if (message.entities && message.entities.intent) {
-            for (var i = 0; i < message.entities.intent.length; i++) {
+
+        if (message.intents) {
+            for (var i = 0; i < message.intents.length; i++) {
                 for (var t = 0; t < tests.length; t++) {
-                    if (message.entities.intent[i].value == tests[t] &&
-                        message.entities.intent[i].confidence >= config.minimum_confidence) {
+                  // message.intents.forEach(function (intent) {
+                  //   console.log(intent);
+                  // });
+                  console.log(message.intents[i].value,message.intents[i].confidence)
+                  console.log(tests[t],config.minimum_confidence)
+                    if (message.intents[i].value == tests[t] || message.intents[i].name == tests[t] &&
+                        message.intents[i].confidence >= config.minimum_confidence) {
                         return true;
                     }
                 }
             }
         }
-
         return false;
     };
 
+
     return middleware;
+
 };
